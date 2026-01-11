@@ -18,21 +18,24 @@ export async function createSession(req, res) {
     const session = await Session.create({ problem, difficulty, host: userId, callId });
 
     // create stream video call
-    await streamClient.video.call("default", callId).getOrCreate({
-      data: {
-        created_by_id: clerkId,
-        custom: { problem, difficulty, sessionId: session._id.toString() },
-      },
-    });
+    if (streamClient) {
+      await streamClient.video.call("default", callId).getOrCreate({
+        data: {
+          created_by_id: clerkId,
+          custom: { problem, difficulty, sessionId: session._id.toString() },
+        },
+      });
+    }
 
     // chat messaging
-    const channel = chatClient.channel("messaging", callId, {
-      name: `${problem} Session`,
-      created_by_id: clerkId,
-      members: [clerkId],
-    });
-
-    await channel.create();
+    if (chatClient) {
+      const channel = chatClient.channel("messaging", callId, {
+        name: `${problem} Session`,
+        created_by_id: clerkId,
+        members: [clerkId],
+      });
+      await channel.create();
+    }
 
     res.status(201).json({ session });
   } catch (error) {
@@ -106,18 +109,19 @@ export async function joinSession(req, res) {
       return res.status(400).json({ message: "Cannot join a completed session" });
     }
 
-    if (session.host.toString() === userId.toString()) {
-      return res.status(400).json({ message: "Host cannot join their own session as participant" });
-    }
+  if (session.host.toString() === userId.toString()) {
+      return res.status(200).json({ session, message: "Host already in session" });
+  }
 
-    // check if session is already full - has a participant
     if (session.participant) return res.status(409).json({ message: "Session is full" });
 
     session.participant = userId;
     await session.save();
 
-    const channel = chatClient.channel("messaging", session.callId);
-    await channel.addMembers([clerkId]);
+    if (chatClient) {
+      const channel = chatClient.channel("messaging", session.callId);
+      await channel.addMembers([clerkId]);
+    }
 
     res.status(200).json({ session });
   } catch (error) {
@@ -146,12 +150,16 @@ export async function endSession(req, res) {
     }
 
     // delete stream video call
-    const call = streamClient.video.call("default", session.callId);
-    await call.delete({ hard: true });
+    if (streamClient) {
+      const call = streamClient.video.call("default", session.callId);
+      await call.delete({ hard: true });
+    }
 
     // delete stream chat channel
-    const channel = chatClient.channel("messaging", session.callId);
-    await channel.delete();
+    if (chatClient) {
+      const channel = chatClient.channel("messaging", session.callId);
+      await channel.delete();
+    }
 
     session.status = "completed";
     await session.save();
