@@ -11,13 +11,10 @@ export async function createSession(req, res) {
       return res.status(400).json({ message: "Problem and difficulty are required" });
     }
 
-    // generate a unique call id for stream video
     const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-    // create session in db
     const session = await Session.create({ problem, difficulty, host: userId, callId });
 
-    // create stream video call
     if (streamClient) {
       await streamClient.video.call("default", callId).getOrCreate({
         data: {
@@ -27,7 +24,6 @@ export async function createSession(req, res) {
       });
     }
 
-    // chat messaging
     if (chatClient) {
       const channel = chatClient.channel("messaging", callId, {
         name: `${problem} Session`,
@@ -63,7 +59,6 @@ export async function getMyRecentSessions(req, res) {
   try {
     const userId = req.user._id;
 
-    // get sessions where user is either host or participant
     const sessions = await Session.find({
       status: "completed",
       $or: [{ host: userId }, { participant: userId }],
@@ -139,23 +134,19 @@ export async function endSession(req, res) {
 
     if (!session) return res.status(404).json({ message: "Session not found" });
 
-    // check if user is the host
     if (session.host.toString() !== userId.toString()) {
       return res.status(403).json({ message: "Only the host can end the session" });
     }
 
-    // check if session is already completed
     if (session.status === "completed") {
       return res.status(400).json({ message: "Session is already completed" });
     }
 
-    // delete stream video call
     if (streamClient) {
       const call = streamClient.video.call("default", session.callId);
       await call.delete({ hard: true });
     }
 
-    // delete stream chat channel
     if (chatClient) {
       const channel = chatClient.channel("messaging", session.callId);
       await channel.delete();
